@@ -6,7 +6,7 @@ import type { UserBook } from '../types'
 import StarRating from '../components/StarRating'
 import BookCover from '../components/BookCover'
 
-const YEARLY_GOAL = 52
+const YEARLY_GOAL = 80
 
 const RECOMMENDATIONS = [
   { title: 'Tomorrow, and Tomorrow, and Tomorrow', author: 'Gabrielle Zevin', genre: 'Literary Fiction' },
@@ -42,8 +42,8 @@ export default function Dashboard() {
           .select('*, books(*)')
           .eq('user_id', user.id)
           .eq('status', 'READ')
-          .order('date_finished', { ascending: false })
-          .limit(4),
+          .order('date_finished', { ascending: false, nullsFirst: false })
+          .limit(7),
 
         supabase
           .from('user_books')
@@ -69,16 +69,17 @@ export default function Dashboard() {
   // Fetch Google Books description for currently-reading book
   useEffect(() => {
     if (!currentlyReading?.books) return
+    setCrDescription(null)
     const { title, author } = currentlyReading.books
-    const q = `intitle:${encodeURIComponent(title)}+inauthor:${encodeURIComponent(author)}`
+    const q = encodeURIComponent(`intitle:${title} inauthor:${author}`)
     fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`)
       .then((r) => r.json())
       .then((data) => {
         const desc: string | undefined = data.items?.[0]?.volumeInfo?.description
-        if (desc) setCrDescription(desc.length > 200 ? desc.substring(0, 200) + '…' : desc)
+        if (desc) setCrDescription(desc.length > 300 ? desc.substring(0, 300) + '…' : desc)
       })
       .catch(() => {})
-  }, [currentlyReading?.books?.title, currentlyReading?.books?.author])
+  }, [currentlyReading])
 
   if (loading) {
     return (
@@ -154,9 +155,9 @@ export default function Dashboard() {
                   fontFamily: "'Spectral', Georgia, serif",
                   fontWeight: 300,
                   fontStyle: 'italic',
-                  fontSize: '0.75rem',
+                  fontSize: '0.8125rem',
                   lineHeight: 1.6,
-                  color: 'rgba(245,240,232,0.55)',
+                  color: 'rgba(245,240,232,0.6)',
                   marginBottom: 10,
                 }}>
                   {crDescription}
@@ -253,143 +254,150 @@ export default function Dashboard() {
           }}>
             No books logged yet. <Link to="/books/add" style={{ color: '#1C2B4A', textDecoration: 'underline' }}>Add your first book.</Link>
           </p>
-        ) : (
-          <>
-            {/* Featured — most recent */}
-            {recentBooks[0]?.books && (
-              <Link
-                to={`/books/${recentBooks[0].id}`}
-                style={{
-                  display: 'flex',
-                  gap: 28,
-                  marginBottom: 40,
-                  paddingBottom: 40,
-                  borderBottom: '1px solid #D9D0C4',
-                  textDecoration: 'none',
-                }}
-              >
-                <BookCover
-                  coverUrl={recentBooks[0].books.cover_url}
-                  title={recentBooks[0].books.title}
-                  width={100}
-                  height={150}
-                  style={{ flexShrink: 0 }}
-                />
-                <div style={{ flex: 1 }}>
-                  <span style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: '0.6rem',
-                    letterSpacing: '0.1em',
-                    color: '#888',
-                    display: 'block',
-                    marginBottom: 8,
-                  }}>
-                    (01)
-                  </span>
-                  <h3 style={{
-                    fontFamily: "'Spectral', Georgia, serif",
-                    fontWeight: 600,
-                    fontSize: '1.4rem',
-                    color: '#1A1008',
-                    marginBottom: 6,
-                    lineHeight: 1.2,
-                  }}>
-                    {recentBooks[0].books.title}
-                  </h3>
-                  <p style={{
-                    fontFamily: "'Spectral', Georgia, serif",
-                    fontWeight: 300,
-                    fontStyle: 'italic',
-                    color: '#888',
-                    marginBottom: 12,
-                  }}>
-                    {recentBooks[0].books.author}
-                  </p>
-                  <p style={{
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: '0.65rem',
-                    color: '#888',
-                    letterSpacing: '0.04em',
-                    marginBottom: 12,
-                  }}>
-                    {[
-                      recentBooks[0].books.pages && `${recentBooks[0].books.pages}p`,
-                      recentBooks[0].books.publish_year,
-                      recentBooks[0].books.genre,
-                    ].filter(Boolean).join(' · ')}
-                  </p>
-                  {recentBooks[0].rating != null && (
-                    <div style={{ marginBottom: 12 }}>
-                      <StarRating rating={recentBooks[0].rating} size={14} />
-                    </div>
-                  )}
-                  {recentBooks[0].review && (
-                    <p style={{
-                      fontFamily: "'Spectral', Georgia, serif",
-                      fontWeight: 300,
-                      fontStyle: 'italic',
-                      fontSize: '0.95rem',
-                      color: 'rgba(26,16,8,0.7)',
-                      lineHeight: 1.6,
-                    }}>
-                      "{recentBooks[0].review.length > 200
-                        ? recentBooks[0].review.substring(0, 200) + '…'
-                        : recentBooks[0].review}"
-                    </p>
-                  )}
-                </div>
-              </Link>
-            )}
-
-            {/* Grid of up to 3 more */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
-              {recentBooks.slice(1, 4).map((ub, i) =>
-                ub.books ? (
-                  <Link
-                    key={ub.id}
-                    to={`/books/${ub.id}`}
-                    style={{ textDecoration: 'none' }}
-                  >
-                    <BookCover
-                      coverUrl={ub.books.cover_url}
-                      title={ub.books.title}
-                      style={{ width: '100%', aspectRatio: '2/3', marginBottom: 10 }}
-                    />
+        ) : (() => {
+          const withBooks = recentBooks.filter((ub) => ub.books)
+          const featured = withBooks[0]
+          const gridBooks = withBooks.slice(1, 4)
+          return (
+            <>
+              {/* Featured — most recent */}
+              {featured && (
+                <Link
+                  to={`/books/${featured.id}`}
+                  style={{
+                    display: 'flex',
+                    gap: 28,
+                    marginBottom: 40,
+                    paddingBottom: 40,
+                    borderBottom: gridBooks.length > 0 ? '1px solid #D9D0C4' : 'none',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <BookCover
+                    coverUrl={featured.books!.cover_url}
+                    title={featured.books!.title}
+                    width={100}
+                    height={150}
+                    style={{ flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1 }}>
                     <span style={{
                       fontFamily: "'IBM Plex Mono', monospace",
                       fontSize: '0.6rem',
                       letterSpacing: '0.1em',
                       color: '#888',
                       display: 'block',
-                      marginBottom: 4,
+                      marginBottom: 8,
                     }}>
-                      ({String(i + 2).padStart(2, '0')})
+                      (01)
                     </span>
-                    <p style={{
+                    <h3 style={{
                       fontFamily: "'Spectral', Georgia, serif",
                       fontWeight: 600,
-                      fontSize: '0.95rem',
+                      fontSize: '1.4rem',
                       color: '#1A1008',
-                      marginBottom: 2,
-                      lineHeight: 1.3,
+                      marginBottom: 6,
+                      lineHeight: 1.2,
                     }}>
-                      {ub.books.title}
-                    </p>
+                      {featured.books!.title}
+                    </h3>
                     <p style={{
                       fontFamily: "'Spectral', Georgia, serif",
                       fontWeight: 300,
                       fontStyle: 'italic',
-                      fontSize: '0.85rem',
                       color: '#888',
+                      marginBottom: 12,
                     }}>
-                      {ub.books.author}
+                      {featured.books!.author}
                     </p>
-                  </Link>
-                ) : null
+                    <p style={{
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      fontSize: '0.65rem',
+                      color: '#888',
+                      letterSpacing: '0.04em',
+                      marginBottom: 12,
+                    }}>
+                      {[
+                        featured.books!.pages && `${featured.books!.pages}p`,
+                        featured.books!.publish_year,
+                        featured.books!.genre,
+                      ].filter(Boolean).join(' · ')}
+                    </p>
+                    {featured.rating != null && (
+                      <div style={{ marginBottom: 12 }}>
+                        <StarRating rating={featured.rating} size={14} />
+                      </div>
+                    )}
+                    {featured.review && (
+                      <p style={{
+                        fontFamily: "'Spectral', Georgia, serif",
+                        fontWeight: 300,
+                        fontStyle: 'italic',
+                        fontSize: '0.95rem',
+                        color: 'rgba(26,16,8,0.7)',
+                        lineHeight: 1.6,
+                      }}>
+                        "{featured.review.length > 200
+                          ? featured.review.substring(0, 200) + '…'
+                          : featured.review}"
+                      </p>
+                    )}
+                  </div>
+                </Link>
               )}
-            </div>
-          </>
-        )}
+
+              {/* Grid of up to 3 more */}
+              {gridBooks.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
+                  {gridBooks.map((ub, i) => (
+                    <Link
+                      key={ub.id}
+                      to={`/books/${ub.id}`}
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <BookCover
+                        coverUrl={ub.books!.cover_url}
+                        title={ub.books!.title}
+                        width="100%"
+                        height={undefined}
+                        style={{ aspectRatio: '2/3', marginBottom: 10 }}
+                      />
+                      <span style={{
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: '0.6rem',
+                        letterSpacing: '0.1em',
+                        color: '#888',
+                        display: 'block',
+                        marginBottom: 4,
+                      }}>
+                        ({String(i + 2).padStart(2, '0')})
+                      </span>
+                      <p style={{
+                        fontFamily: "'Spectral', Georgia, serif",
+                        fontWeight: 600,
+                        fontSize: '0.95rem',
+                        color: '#1A1008',
+                        marginBottom: 2,
+                        lineHeight: 1.3,
+                      }}>
+                        {ub.books!.title}
+                      </p>
+                      <p style={{
+                        fontFamily: "'Spectral', Georgia, serif",
+                        fontWeight: 300,
+                        fontStyle: 'italic',
+                        fontSize: '0.85rem',
+                        color: '#888',
+                      }}>
+                        {ub.books!.author}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
 
       {/* You might like */}
