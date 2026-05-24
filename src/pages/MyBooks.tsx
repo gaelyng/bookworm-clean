@@ -4,6 +4,7 @@ import type { OutletCtx } from '../App'
 import { supabase } from '../lib/supabase'
 import type { UserBook, Status } from '../types'
 import StarRating from '../components/StarRating'
+import BookCover from '../components/BookCover'
 
 type SortKey = 'created_at' | 'title' | 'author' | 'rating' | 'date_finished'
 type ViewMode = 'list' | 'covers'
@@ -16,23 +17,6 @@ const STATUS_LABELS: Record<Status, string> = {
 }
 
 const STATUS_OPTIONS: Status[] = ['READ', 'CURRENTLY_READING', 'WANT_TO_READ', 'PRE_PUBLICATION']
-
-function NoCover({ title }: { title: string }) {
-  return (
-    <div style={{
-      background: '#EDE7DA',
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'flex-end',
-      padding: 6,
-    }}>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.55rem', color: '#888', lineHeight: 1.3 }}>
-        {title}
-      </span>
-    </div>
-  )
-}
 
 interface EditModalProps {
   book: UserBook
@@ -321,16 +305,13 @@ export default function MyBooks() {
               </span>
 
               {/* Cover thumbnail */}
-              <Link to={`/books/${ub.id}`} style={{ flexShrink: 0, width: 36, height: 52 }}>
-                {ub.books?.cover_url ? (
-                  <img
-                    src={ub.books.cover_url}
-                    alt={ub.books?.title ?? ''}
-                    style={{ width: 36, height: 52, objectFit: 'cover' }}
-                  />
-                ) : (
-                  <NoCover title={ub.books?.title ?? ''} />
-                )}
+              <Link to={`/books/${ub.id}`} style={{ flexShrink: 0 }}>
+                <BookCover
+                  coverUrl={ub.books?.cover_url}
+                  title={ub.books?.title ?? ''}
+                  width={36}
+                  height={52}
+                />
               </Link>
 
               {/* Title + meta */}
@@ -414,26 +395,11 @@ export default function MyBooks() {
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
             >
-              {ub.books?.cover_url ? (
-                <img
-                  src={ub.books.cover_url}
-                  alt={ub.books?.title ?? ''}
-                  style={{ width: '100%', display: 'block' }}
-                />
-              ) : (
-                <div style={{
-                  width: '100%',
-                  aspectRatio: '2/3',
-                  background: '#EDE7DA',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  padding: 6,
-                }}>
-                  <span style={{ ...mono, fontSize: '0.55rem', color: '#888', lineHeight: 1.3 }}>
-                    {ub.books?.title}
-                  </span>
-                </div>
-              )}
+              <BookCover
+                coverUrl={ub.books?.cover_url}
+                title={ub.books?.title ?? ''}
+                style={{ width: '100%' }}
+              />
             </Link>
           ))}
         </div>

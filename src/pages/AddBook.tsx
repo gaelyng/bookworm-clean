@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import type { OutletCtx } from '../App'
 import { supabase } from '../lib/supabase'
@@ -20,6 +20,7 @@ interface SearchResult {
   title: string
   author: string
   coverUrl: string | null
+  coverThumb: string | null
   publishYear: number | null
   pages: number | null
   genre: string | null
@@ -40,7 +41,6 @@ export default function AddBook() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
 
   const [selected, setSelected] = useState<SearchResult | null>(null)
   const [status, setStatus] = useState<Status>('READ')
@@ -48,7 +48,6 @@ export default function AddBook() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  // Manual entry state
   const [showManual, setShowManual] = useState(false)
   const [manualTitle, setManualTitle] = useState('')
   const [manualAuthor, setManualAuthor] = useState('')
@@ -56,37 +55,45 @@ export default function AddBook() {
   const [manualPages, setManualPages] = useState('')
   const [manualGenre, setManualGenre] = useState('')
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault()
-    if (!query.trim()) return
-    setSearching(true)
-    setSearchError(null)
-    setResults([])
-    setSelected(null)
-
-    try {
-      const res = await fetch(
-        `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8`
-      )
-      const data = await res.json()
-      const docs: SearchResult[] = (data.docs as OLDoc[]).map((doc) => ({
-        key: doc.key,
-        title: doc.title,
-        author: doc.author_name?.[0] ?? 'Unknown',
-        coverUrl: doc.cover_i
-          ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
-          : null,
-        publishYear: doc.first_publish_year ?? null,
-        pages: doc.number_of_pages_median ?? null,
-        genre: doc.subject?.[0] ?? null,
-        isbn: doc.isbn?.[0] ?? null,
-      }))
-      setResults(docs)
-    } catch {
-      setSearchError('Search failed. Please try again.')
+  // Live search with 350ms debounce
+  useEffect(() => {
+    if (query.length < 2) {
+      setResults([])
+      return
     }
-    setSearching(false)
-  }
+
+    const timer = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await fetch(
+          `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8`
+        )
+        const data = await res.json()
+        setResults(
+          (data.docs as OLDoc[]).map((doc) => ({
+            key: doc.key,
+            title: doc.title,
+            author: doc.author_name?.[0] ?? 'Unknown',
+            coverUrl: doc.cover_i
+              ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
+              : null,
+            coverThumb: doc.cover_i
+              ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-S.jpg`
+              : null,
+            publishYear: doc.first_publish_year ?? null,
+            pages: doc.number_of_pages_median ?? null,
+            genre: doc.subject?.[0] ?? null,
+            isbn: doc.isbn?.[0] ?? null,
+          }))
+        )
+      } catch {
+        // silent fail
+      }
+      setSearching(false)
+    }, 350)
+
+    return () => clearTimeout(timer)
+  }, [query])
 
   async function handleAddBook(bookData: {
     title: string
@@ -100,7 +107,6 @@ export default function AddBook() {
     setSaving(true)
     setSaveError(null)
 
-    // Check if book already exists by ISBN
     let bookId: string | null = null
     if (bookData.isbn) {
       const { data: existing } = await supabase
@@ -111,7 +117,6 @@ export default function AddBook() {
       if (existing) bookId = existing.id
     }
 
-    // Insert new book if not found
     if (!bookId) {
       const { data: newBook, error: bookErr } = await supabase
         .from('books')
@@ -126,7 +131,6 @@ export default function AddBook() {
       bookId = newBook.id
     }
 
-    // Insert user_books record
     const { error: ubErr } = await supabase.from('user_books').insert({
       user_id: user.id,
       book_id: bookId,
@@ -141,14 +145,6 @@ export default function AddBook() {
     }
 
     navigate('/books')
-  }
-
-  function handleSelectResult(result: SearchResult) {
-    setSelected(result)
-    setStatus('READ')
-    setDateFinished('')
-    setSaveError(null)
-    setShowManual(false)
   }
 
   async function handleConfirmAdd() {
@@ -180,8 +176,25 @@ export default function AddBook() {
 
   const mono: React.CSSProperties = { fontFamily: "'IBM Plex Mono', monospace" }
   const serif: React.CSSProperties = { fontFamily: "'Spectral', Georgia, serif" }
-  const labelStyle: React.CSSProperties = { ...mono, fontSize: '0.6rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', display: 'block', marginBottom: 6 }
-  const inputStyle: React.CSSProperties = { ...serif, width: '100%', padding: '8px 0', borderBottom: '1px solid #D9D0C4', fontSize: '0.95rem', color: '#1A1008', marginBottom: 18, background: 'transparent' }
+  const labelStyle: React.CSSProperties = {
+    ...mono,
+    fontSize: '0.6rem',
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    color: '#888',
+    display: 'block',
+    marginBottom: 6,
+  }
+  const inputStyle: React.CSSProperties = {
+    ...serif,
+    width: '100%',
+    padding: '8px 0',
+    borderBottom: '1px solid #D9D0C4',
+    fontSize: '0.95rem',
+    color: '#1A1008',
+    marginBottom: 18,
+    background: 'transparent',
+  }
 
   return (
     <div style={{ padding: '40px 28px', maxWidth: 720 }}>
@@ -189,87 +202,81 @@ export default function AddBook() {
         log a book
       </h1>
 
-      {/* Search */}
-      <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10, marginBottom: 32 }}>
+      {/* Live search input */}
+      <div style={{ position: 'relative', marginBottom: 8 }}>
         <input
           type="text"
           placeholder="search by title, author, or ISBN…"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setSelected(null)
+          }}
           style={{
-            flex: 1,
+            width: '100%',
             ...serif,
-            fontSize: '0.95rem',
+            fontSize: '1rem',
             padding: '10px 0',
             borderBottom: '2px solid #2C1A0E',
             color: '#1A1008',
             background: 'transparent',
           }}
         />
-        <button
-          type="submit"
-          disabled={searching}
-          style={{
-            fontFamily: "'Courier Prime', 'Courier New', monospace",
-            fontWeight: 700,
-            fontSize: '0.72rem',
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            padding: '10px 18px',
-            background: '#2C1A0E',
-            color: '#F5F0E8',
-            border: 'none',
-            opacity: searching ? 0.6 : 1,
-          }}
-        >
-          {searching ? '...' : 'search'}
-        </button>
-      </form>
+      </div>
 
-      {searchError && (
-        <p style={{ ...mono, fontSize: '0.7rem', color: '#888', marginBottom: 20 }}>{searchError}</p>
-      )}
+      {/* Status line */}
+      <div style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.08em', marginBottom: 24, minHeight: 16 }}>
+        {searching && 'searching…'}
+        {!searching && query.length >= 2 && results.length > 0 && `${results.length} results`}
+        {!searching && query.length >= 2 && results.length === 0 && !selected && 'no results'}
+        {query.length > 0 && query.length < 2 && 'type at least 2 characters'}
+      </div>
 
       {/* Search results */}
       {results.length > 0 && !selected && (
         <div style={{ marginBottom: 32 }}>
-          <p style={{ ...mono, fontSize: '0.6rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888', marginBottom: 16 }}>
-            {results.length} results
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {results.map((result) => (
-              <button
-                key={result.key}
-                onClick={() => handleSelectResult(result)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                  padding: '12px 0',
-                  borderBottom: '1px solid #D9D0C4',
-                  background: 'none',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ width: 36, height: 52, flexShrink: 0 }}>
-                  {result.coverUrl ? (
-                    <img src={result.coverUrl} alt={result.title} style={{ width: 36, height: 52, objectFit: 'cover' }} />
-                  ) : (
-                    <div style={{ width: 36, height: 52, background: '#EDE7DA' }} />
-                  )}
-                </div>
-                <div>
-                  <p style={{ ...serif, fontWeight: 600, fontSize: '0.95rem', color: '#1A1008', marginBottom: 2 }}>
-                    {result.title}
-                  </p>
-                  <p style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.04em' }}>
-                    {[result.author, result.publishYear].filter(Boolean).join(' · ')}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
+          {results.map((result) => (
+            <button
+              key={result.key}
+              onClick={() => {
+                setSelected(result)
+                setStatus('READ')
+                setDateFinished('')
+                setSaveError(null)
+                setShowManual(false)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                padding: '12px 0',
+                borderBottom: '1px solid #D9D0C4',
+                background: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              <div style={{ width: 28, height: 40, flexShrink: 0, background: '#EDE7DA', overflow: 'hidden' }}>
+                {result.coverThumb && (
+                  <img
+                    src={result.coverThumb}
+                    alt=""
+                    style={{ width: 28, height: 40, objectFit: 'cover', display: 'block' }}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                  />
+                )}
+              </div>
+              <div>
+                <p style={{ ...serif, fontWeight: 600, fontSize: '0.95rem', color: '#1A1008', marginBottom: 2 }}>
+                  {result.title}
+                </p>
+                <p style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.04em' }}>
+                  {[result.author, result.publishYear].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
@@ -277,11 +284,16 @@ export default function AddBook() {
       {selected && (
         <div style={{ border: '1px solid #D9D0C4', padding: 24, marginBottom: 32 }}>
           <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-            {selected.coverUrl ? (
-              <img src={selected.coverUrl} alt={selected.title} style={{ width: 72, flexShrink: 0 }} />
-            ) : (
-              <div style={{ width: 72, aspectRatio: '2/3', background: '#EDE7DA', flexShrink: 0 }} />
-            )}
+            <div style={{ width: 72, flexShrink: 0, background: '#EDE7DA', aspectRatio: '2/3', overflow: 'hidden' }}>
+              {selected.coverUrl && (
+                <img
+                  src={selected.coverUrl}
+                  alt={selected.title}
+                  style={{ width: 72, display: 'block', objectFit: 'cover' }}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+              )}
+            </div>
             <div>
               <p style={{ ...serif, fontWeight: 600, fontSize: '1.1rem', color: '#1A1008', marginBottom: 4 }}>
                 {selected.title}
@@ -294,7 +306,9 @@ export default function AddBook() {
                   selected.publishYear,
                   selected.pages && `${selected.pages}p`,
                   selected.genre,
-                ].filter(Boolean).join(' · ')}
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
               </p>
             </div>
           </div>
@@ -343,6 +357,7 @@ export default function AddBook() {
                 color: '#F5F0E8',
                 border: 'none',
                 opacity: saving ? 0.6 : 1,
+                cursor: saving ? 'not-allowed' : 'pointer',
               }}
             >
               {saving ? 'adding...' : 'add to my books'}
@@ -369,7 +384,10 @@ export default function AddBook() {
       {/* Manual entry */}
       <div>
         <button
-          onClick={() => { setShowManual((v) => !v); setSelected(null) }}
+          onClick={() => {
+            setShowManual((v) => !v)
+            setSelected(null)
+          }}
           style={{
             ...mono,
             fontSize: '0.6rem',
@@ -411,7 +429,11 @@ export default function AddBook() {
             </div>
             <label>
               <span style={labelStyle}>status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as Status)} style={{ ...inputStyle, appearance: 'none' as const, cursor: 'pointer' }}>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as Status)}
+                style={{ ...inputStyle, appearance: 'none' as const, cursor: 'pointer' }}
+              >
                 {STATUS_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
@@ -420,7 +442,12 @@ export default function AddBook() {
             {status === 'READ' && (
               <label>
                 <span style={labelStyle}>date finished</span>
-                <input type="date" value={dateFinished} onChange={(e) => setDateFinished(e.target.value)} style={{ ...inputStyle, ...mono }} />
+                <input
+                  type="date"
+                  value={dateFinished}
+                  onChange={(e) => setDateFinished(e.target.value)}
+                  style={{ ...inputStyle, ...mono }}
+                />
               </label>
             )}
             {saveError && (
@@ -440,6 +467,7 @@ export default function AddBook() {
                 color: '#F5F0E8',
                 border: 'none',
                 opacity: saving ? 0.6 : 1,
+                cursor: saving ? 'not-allowed' : 'pointer',
               }}
             >
               {saving ? 'adding...' : 'add to my books'}

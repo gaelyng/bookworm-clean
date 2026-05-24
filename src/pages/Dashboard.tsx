@@ -4,6 +4,7 @@ import type { OutletCtx } from '../App'
 import { supabase } from '../lib/supabase'
 import type { UserBook } from '../types'
 import StarRating from '../components/StarRating'
+import BookCover from '../components/BookCover'
 
 const YEARLY_GOAL = 52
 
@@ -12,27 +13,6 @@ const RECOMMENDATIONS = [
   { title: 'The God of Small Things', author: 'Arundhati Roy', genre: 'Literary Fiction' },
   { title: 'Bewilderment', author: 'Richard Powers', genre: 'Science Fiction' },
 ]
-
-function CoverImg({ src, alt, style }: { src: string | null | undefined; alt: string; style?: React.CSSProperties }) {
-  if (!src) {
-    return (
-      <div
-        style={{
-          background: '#EDE7DA',
-          display: 'flex',
-          alignItems: 'flex-end',
-          padding: 8,
-          ...style,
-        }}
-      >
-        <span style={{ fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1.3 }}>
-          {alt}
-        </span>
-      </div>
-    )
-  }
-  return <img src={src} alt={alt} style={{ objectFit: 'cover', ...style }} />
-}
 
 export default function Dashboard() {
   const { user } = useOutletContext<OutletCtx>()
@@ -108,10 +88,12 @@ export default function Dashboard() {
             textDecoration: 'none',
           }}
         >
-          <CoverImg
-            src={currentlyReading.books.cover_url}
-            alt={currentlyReading.books.title}
-            style={{ width: 44, height: 64, flexShrink: 0 }}
+          <BookCover
+            coverUrl={currentlyReading.books.cover_url}
+            title={currentlyReading.books.title}
+            width={44}
+            height={64}
+            style={{ flexShrink: 0 }}
           />
           <div>
             <p style={{
@@ -239,10 +221,12 @@ export default function Dashboard() {
                   textDecoration: 'none',
                 }}
               >
-                <CoverImg
-                  src={recentBooks[0].books.cover_url}
-                  alt={recentBooks[0].books.title}
-                  style={{ width: 100, height: 150, flexShrink: 0 }}
+                <BookCover
+                  coverUrl={recentBooks[0].books.cover_url}
+                  title={recentBooks[0].books.title}
+                  width={100}
+                  height={150}
+                  style={{ flexShrink: 0 }}
                 />
                 <div style={{ flex: 1 }}>
                   <span style={{
@@ -319,9 +303,9 @@ export default function Dashboard() {
                     to={`/books/${ub.id}`}
                     style={{ textDecoration: 'none' }}
                   >
-                    <CoverImg
-                      src={ub.books.cover_url}
-                      alt={ub.books.title}
+                    <BookCover
+                      coverUrl={ub.books.cover_url}
+                      title={ub.books.title}
                       style={{ width: '100%', aspectRatio: '2/3', marginBottom: 10 }}
                     />
                     <span style={{
