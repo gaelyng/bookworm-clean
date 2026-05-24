@@ -27,6 +27,7 @@ function getLabel(pathname: string): string {
 
 export default function Nav({ user }: NavProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [logDropdownOpen, setLogDropdownOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const label = getLabel(location.pathname)
@@ -217,27 +218,75 @@ export default function Nav({ user }: NavProps) {
           ))}
         </div>
 
-        <NavLink
-          to="/books/add"
-          style={{
-            fontFamily: "'Courier Prime', 'Courier New', monospace",
-            fontWeight: 700,
-            fontSize: '0.72rem',
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-            background: '#1C2B4A',
-            color: '#F5F0E8',
-            padding: '7px 14px',
-          }}
-        >
-          + log a book
-        </NavLink>
+        {/* Log a book dropdown */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setLogDropdownOpen((o) => !o)}
+            style={{
+              fontFamily: "'Courier Prime', 'Courier New', monospace",
+              fontWeight: 700,
+              fontSize: '0.72rem',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              background: '#1C2B4A',
+              color: '#F5F0E8',
+              padding: '7px 14px',
+              cursor: 'pointer',
+            }}
+          >
+            + log a book
+          </button>
+
+          {logDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                background: '#2C1A0E',
+                border: '1px solid rgba(245,240,232,0.1)',
+                minWidth: 180,
+                zIndex: 200,
+              }}
+            >
+              {[
+                { label: 'log a book', action: () => navigate('/books/add') },
+                { label: 'log an article', action: () => navigate('/articles') },
+                { label: 'from a photo', action: () => alert('coming soon') },
+              ].map((item, i, arr) => (
+                <button
+                  key={item.label}
+                  onClick={() => { item.action(); setLogDropdownOpen(false) }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '12px 20px',
+                    textAlign: 'left',
+                    background: 'none',
+                    fontFamily: "'Courier Prime', 'Courier New', monospace",
+                    fontStyle: 'italic',
+                    fontSize: '0.72rem',
+                    color: 'rgba(245,240,232,0.7)',
+                    letterSpacing: '0.04em',
+                    borderBottom: i < arr.length - 1 ? '1px solid rgba(245,240,232,0.08)' : 'none',
+                    cursor: 'pointer',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(245,240,232,0.05)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'none' }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Close dropdown on outside click */}
-      {dropdownOpen && (
+      {/* Close dropdowns on outside click */}
+      {(dropdownOpen || logDropdownOpen) && (
         <div
-          onClick={() => setDropdownOpen(false)}
+          onClick={() => { setDropdownOpen(false); setLogDropdownOpen(false) }}
           style={{
             position: 'fixed',
             inset: 0,

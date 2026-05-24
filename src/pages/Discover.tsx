@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { Book, Status } from '../types'
 import { useOutletContext } from 'react-router-dom'
@@ -47,6 +47,7 @@ function parseResults(docs: OLSearchResult[]): DiscoverBook[] {
 export default function Discover() {
   const { user } = useOutletContext<OutletCtx>()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const qParam = searchParams.get('q') ?? ''
 
   const [query, setQuery] = useState(qParam)
@@ -54,7 +55,9 @@ export default function Discover() {
   const [results, setResults] = useState<DiscoverBook[]>([])
   const [searching, setSearching] = useState(false)
   const [addingKey, setAddingKey] = useState<string | null>(null)
+  const [navigatingKey, setNavigatingKey] = useState<string | null>(null)
   const didInit = useRef(false)
+
   async function doSearch(q: string, filters: string[] = []) {
     const fullQ = [q, ...filters.map((f) => f.toLowerCase())].filter(Boolean).join(' ')
     if (!fullQ) return
@@ -81,6 +84,22 @@ export default function Discover() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Debounced search on query typing
+  useEffect(() => {
+    if (!query || query.length < 2) return
+    const t = setTimeout(() => doSearch(query, activeFilters), 350)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
+
+  // Re-search when filters change (if we have a query)
+  useEffect(() => {
+    const fullQ = [query, ...activeFilters].filter(Boolean).join(' ')
+    if (!fullQ) return
+    doSearch(query, activeFilters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilters])
+
   function toggleFilter(f: string) {
     setActiveFilters((prev) =>
       prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
@@ -90,6 +109,30 @@ export default function Discover() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     doSearch(query, activeFilters)
+  }
+
+  async function handleCardClick(book: DiscoverBook) {
+    setNavigatingKey(book.key)
+    try {
+      let bookId: string | null = null
+      if (book.isbn) {
+        const { data } = await supabase.from('books').select('id').eq('isbn', book.isbn).single()
+        if (data) bookId = data.id
+      }
+      if (!bookId) {
+        const { data } = await supabase.from('books').select('id').eq('title', book.title).single()
+        if (data) bookId = data.id
+      }
+      if (bookId) {
+        const { data } = await supabase
+          .from('user_books').select('id').eq('user_id', user.id).eq('book_id', bookId).single()
+        if (data) {
+          navigate(`/books/${data.id}`)
+          return
+        }
+      }
+    } catch { /* not in library — let user use + buttons */ }
+    setNavigatingKey(null)
   }
 
   async function handleQuickAdd(book: DiscoverBook, status: Status) {
@@ -214,97 +257,79 @@ export default function Discover() {
         >
           {results.map((book) => (
             <div key={book.key}>
-              <div style={{ marginBottom: 10 }}>
-                {book.coverUrl ? (
-                  <img
-                    src={book.coverUrl}
-                    alt={book.title}
-                    style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
-                    onError={(e) => {
-                      const el = e.currentTarget as HTMLImageElement
-                      el.style.display = 'none'
-                      const sibling = el.nextElementSibling as HTMLElement | null
-                      if (sibling) sibling.style.display = 'flex'
-                    }}
-                  />
-                ) : null}
-                <div
-                  style={{
-                    display: book.coverUrl ? 'none' : 'flex',
-                    width: '100%',
-                    aspectRatio: '2/3',
-                    background: 'rgba(245,240,232,0.06)',
-                    alignItems: 'flex-end',
-                    padding: 8,
-                  }}
-                >
-                  <span style={{ ...mono, fontSize: '0.55rem', color: 'rgba(245,240,232,0.4)', lineHeight: 1.3 }}>
-                    {book.title}
-                  </span>
-                </div>
-              </div>
-              <p
+              {/* Clickable cover + title — navigates if book is in library */}
+              <button
+                onClick={() => handleCardClick(book)}
+                disabled={navigatingKey === book.key || addingKey === book.key}
                 style={{
-                  ...serif,
-                  fontWeight: 600,
-                  fontSize: '0.88rem',
-                  color: '#F5F0E8',
-                  marginBottom: 2,
-                  lineHeight: 1.3,
-                }}
-              >
-                {book.title}
-              </p>
-              <p
-                style={{
-                  ...serif,
-                  fontWeight: 300,
-                  fontStyle: 'italic',
-                  fontSize: '0.78rem',
-                  color: 'rgba(245,240,232,0.5)',
+                  display: 'block',
+                  width: '100%',
+                  background: 'none',
+                  padding: 0,
+                  textAlign: 'left',
+                  cursor: navigatingKey === book.key ? 'wait' : 'pointer',
+                  opacity: navigatingKey === book.key ? 0.6 : 1,
+                  transition: 'opacity 0.15s',
                   marginBottom: 8,
                 }}
               >
-                {book.author}
-              </p>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => handleQuickAdd(book, 'WANT_TO_READ')}
-                  disabled={addingKey === book.key}
-                  style={{
-                    ...mono,
-                    fontSize: '0.55rem',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    padding: '4px 7px',
-                    background: 'transparent',
-                    color: 'rgba(245,240,232,0.5)',
-                    border: '1px solid rgba(245,240,232,0.15)',
-                    cursor: 'pointer',
-                    opacity: addingKey === book.key ? 0.4 : 1,
-                  }}
-                >
-                  + want
-                </button>
-                <button
-                  onClick={() => handleQuickAdd(book, 'READ')}
-                  disabled={addingKey === book.key}
-                  style={{
-                    ...mono,
-                    fontSize: '0.55rem',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    padding: '4px 7px',
-                    background: 'rgba(245,240,232,0.08)',
-                    color: 'rgba(245,240,232,0.7)',
-                    border: '1px solid rgba(245,240,232,0.15)',
-                    cursor: 'pointer',
-                    opacity: addingKey === book.key ? 0.4 : 1,
-                  }}
-                >
-                  + read
-                </button>
-              </div>
+                <div style={{ marginBottom: 8 }}>
+                  {book.coverUrl ? (
+                    <img
+                      src={book.coverUrl}
+                      alt={book.title}
+                      style={{ width: '100%', aspectRatio: '2/3', objectFit: 'cover', display: 'block' }}
+                      onError={(e) => {
+                        const el = e.currentTarget as HTMLImageElement
+                        el.style.display = 'none'
+                        const sibling = el.nextElementSibling as HTMLElement | null
+                        if (sibling) sibling.style.display = 'flex'
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    style={{
+                      display: book.coverUrl ? 'none' : 'flex',
+                      width: '100%',
+                      aspectRatio: '2/3',
+                      background: 'rgba(245,240,232,0.06)',
+                      alignItems: 'flex-end',
+                      padding: 8,
+                    }}
+                  >
+                    <span style={{ ...mono, fontSize: '0.55rem', color: 'rgba(245,240,232,0.4)', lineHeight: 1.3 }}>
+                      {book.title}
+                    </span>
+                  </div>
+                </div>
+                <p style={{ ...serif, fontWeight: 600, fontSize: '0.88rem', color: '#F5F0E8', marginBottom: 2, lineHeight: 1.3 }}>
+                  {book.title}
+                </p>
+                <p style={{ ...mono, fontSize: '0.65rem', color: 'rgba(245,240,232,0.45)', letterSpacing: '0.04em' }}>
+                  {book.author}
+                </p>
+              </button>
+
+              {/* Quick-add to want-to-read */}
+              <button
+                onClick={() => handleQuickAdd(book, 'WANT_TO_READ')}
+                disabled={addingKey === book.key || navigatingKey === book.key}
+                style={{
+                  ...mono,
+                  fontSize: '0.55rem',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  padding: '4px 10px',
+                  background: 'transparent',
+                  color: 'rgba(245,240,232,0.5)',
+                  border: '1px solid rgba(245,240,232,0.15)',
+                  cursor: 'pointer',
+                  opacity: addingKey === book.key ? 0.4 : 1,
+                  marginTop: 6,
+                }}
+              >
+                {addingKey === book.key ? '...' : '+ want to read'}
+              </button>
             </div>
           ))}
         </div>

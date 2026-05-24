@@ -26,37 +26,20 @@ interface AuthorBook {
 }
 
 interface GoogleBookInfo {
-  description: string | null
   categories: string[]
 }
 
 
 async function fetchGoogleBooksInfo(title: string, author: string): Promise<GoogleBookInfo | null> {
   try {
-    const urlWithAuthor = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${title} inauthor:${author}`)}&maxResults=1`
-    console.log('[BookDetail] Google Books URL:', urlWithAuthor)
-    let res = await fetch(urlWithAuthor)
-    let data = await res.json()
-    console.log('[BookDetail] Google Books response:', data)
-
-    let info = data.items?.[0]?.volumeInfo
-    if (!info?.description) {
-      // Fallback: search by title only
-      const urlTitleOnly = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${title}`)}&maxResults=1`
-      console.log('[BookDetail] Fallback URL (title only):', urlTitleOnly)
-      res = await fetch(urlTitleOnly)
-      data = await res.json()
-      console.log('[BookDetail] Fallback response:', data)
-      info = data.items?.[0]?.volumeInfo
-    }
-
+    const res = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${title} inauthor:${author}`)}&maxResults=1`
+    )
+    const data = await res.json()
+    const info = data.items?.[0]?.volumeInfo
     if (!info) return null
-    return {
-      description: (info.description as string | undefined) ?? null,
-      categories: (info.categories as string[] | undefined) ?? [],
-    }
-  } catch (e) {
-    console.error('[BookDetail] Google Books fetch failed:', e)
+    return { categories: (info.categories as string[] | undefined) ?? [] }
+  } catch {
     return null
   }
 }
@@ -81,35 +64,18 @@ async function fetchAuthorBooks(author: string, currentTitle: string): Promise<A
 }
 
 async function fetchRecommendations(title: string, author: string): Promise<Rec[] | null> {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined
-  if (!apiKey) return null
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/recommendations', {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 500,
-        messages: [
-          {
-            role: 'user',
-            content: `Recommend 3 books similar to "${title}" by "${author}". Respond only in JSON: [{"title":"...","author":"...","reason":"..."}]`,
-          },
-        ],
-      }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title, author }),
     })
+    if (!res.ok) return null
     const data = await res.json()
-    const text: string = data.content?.[0]?.text ?? ''
-    const match = text.match(/\[[\s\S]*\]/)
-    if (match) return JSON.parse(match[0]) as Rec[]
+    return Array.isArray(data) ? (data as Rec[]) : null
   } catch {
-    // silent fail
+    return null
   }
-  return null
 }
 
 export default function BookDetail() {
@@ -127,12 +93,11 @@ export default function BookDetail() {
   const [saving, setSaving] = useState(false)
 
   // Enriched data
+  const [description, setDescription] = useState<string | null>(null)
   const [bookInfo, setBookInfo] = useState<GoogleBookInfo | null>(null)
   const [authorBooks, setAuthorBooks] = useState<AuthorBook[]>([])
   const [recs, setRecs] = useState<Rec[] | null>(null)
   const [recsLoading, setRecsLoading] = useState(false)
-
-  const hasApiKey = !!import.meta.env.VITE_ANTHROPIC_API_KEY
 
   useEffect(() => {
     if (!id) return
@@ -153,7 +118,16 @@ export default function BookDetail() {
           if (ub.books) {
             const { title, author } = ub.books
 
-            // Google Books + Anthropic in parallel
+            // Description (title-only search for best match)
+            fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(title)}&maxResults=1`)
+              .then((r) => r.json())
+              .then((json) => {
+                const desc = json.items?.[0]?.volumeInfo?.description as string | undefined
+                if (desc) setDescription(desc.slice(0, 400) + (desc.length > 400 ? '...' : ''))
+              })
+              .catch(() => {})
+
+            // Categories + author books in parallel
             const [info, otherBooks] = await Promise.all([
               fetchGoogleBooksInfo(title, author),
               fetchAuthorBooks(author, title),
@@ -161,17 +135,17 @@ export default function BookDetail() {
             setBookInfo(info)
             setAuthorBooks(otherBooks)
 
-            if (hasApiKey) {
-              setRecsLoading(true)
-              const result = await fetchRecommendations(title, author)
+            // Recommendations via serverless proxy
+            setRecsLoading(true)
+            fetchRecommendations(title, author).then((result) => {
               setRecs(result)
               setRecsLoading(false)
-            }
+            }).catch(() => setRecsLoading(false))
           }
         }
         setLoading(false)
       })
-  }, [id, hasApiKey])
+  }, [id])
 
   async function handleSave() {
     if (!userBook) return
@@ -310,8 +284,8 @@ export default function BookDetail() {
             ))}
           </div>
 
-          {/* Description from Google Books — rendered below buy links */}
-          {bookInfo?.description && (
+          {/* Description from Google Books */}
+          {description && (
             <p
               style={{
                 ...serif,
@@ -323,9 +297,7 @@ export default function BookDetail() {
                 marginBottom: 18,
               }}
             >
-              {bookInfo.description.length > 300
-                ? bookInfo.description.substring(0, 300) + '…'
-                : bookInfo.description}
+              {description}
             </p>
           )}
 
@@ -665,6 +637,7 @@ export default function BookDetail() {
       )}
 
       {/* YOU MIGHT ALSO LIKE */}
+      {(recsLoading || (recs && recs.length > 0)) && (
       <div style={{ marginTop: 48, borderTop: '1px solid #D9D0C4', paddingTop: 32 }}>
         <p
           style={{
@@ -679,11 +652,7 @@ export default function BookDetail() {
           you might also like
         </p>
 
-        {!hasApiKey ? (
-          <p style={{ ...mono, fontSize: '0.58rem', color: '#888', letterSpacing: '0.06em' }}>
-            add VITE_ANTHROPIC_API_KEY to .env to see ai recommendations
-          </p>
-        ) : recsLoading ? (
+        {recsLoading ? (
           <p style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.08em' }}>
             finding recommendations...
           </p>
@@ -740,6 +709,7 @@ export default function BookDetail() {
           </div>
         ) : null}
       </div>
+      )}
     </div>
   )
 }

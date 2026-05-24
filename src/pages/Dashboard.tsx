@@ -417,24 +417,11 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
           {RECOMMENDATIONS.map((rec) => (
             <div key={rec.title}>
-              <div style={{
-                width: '100%',
-                aspectRatio: '2/3',
-                background: '#EDE7DA',
-                marginBottom: 10,
-                display: 'flex',
-                alignItems: 'flex-end',
-                padding: 10,
-              }}>
-                <span style={{
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: '0.6rem',
-                  color: '#888',
-                  lineHeight: 1.4,
-                }}>
-                  {rec.genre}
-                </span>
-              </div>
+              <BookCover
+                coverUrl={`https://covers.openlibrary.org/b/title/${encodeURIComponent(rec.title)}-M.jpg`}
+                title={rec.title}
+                style={{ width: '100%', aspectRatio: '2/3', marginBottom: 10 }}
+              />
               <p style={{
                 fontFamily: "'Spectral', Georgia, serif",
                 fontWeight: 600,
