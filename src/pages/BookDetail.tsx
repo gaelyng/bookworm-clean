@@ -30,23 +30,33 @@ interface GoogleBookInfo {
   categories: string[]
 }
 
-function firstNSentences(text: string, n: number): string {
-  const matches = text.match(/[^.!?]*[.!?]+/g) ?? []
-  return matches.slice(0, n).join('').trim()
-}
 
 async function fetchGoogleBooksInfo(title: string, author: string): Promise<GoogleBookInfo | null> {
   try {
-    const q = `intitle:${encodeURIComponent(title)}+inauthor:${encodeURIComponent(author)}`
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`)
-    const data = await res.json()
-    const info = data.items?.[0]?.volumeInfo
+    const urlWithAuthor = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${title} inauthor:${author}`)}&maxResults=1`
+    console.log('[BookDetail] Google Books URL:', urlWithAuthor)
+    let res = await fetch(urlWithAuthor)
+    let data = await res.json()
+    console.log('[BookDetail] Google Books response:', data)
+
+    let info = data.items?.[0]?.volumeInfo
+    if (!info?.description) {
+      // Fallback: search by title only
+      const urlTitleOnly = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`intitle:${title}`)}&maxResults=1`
+      console.log('[BookDetail] Fallback URL (title only):', urlTitleOnly)
+      res = await fetch(urlTitleOnly)
+      data = await res.json()
+      console.log('[BookDetail] Fallback response:', data)
+      info = data.items?.[0]?.volumeInfo
+    }
+
     if (!info) return null
     return {
       description: (info.description as string | undefined) ?? null,
       categories: (info.categories as string[] | undefined) ?? [],
     }
-  } catch {
+  } catch (e) {
+    console.error('[BookDetail] Google Books fetch failed:', e)
     return null
   }
 }
@@ -218,9 +228,6 @@ export default function BookDetail() {
     },
   ]
 
-  const descriptionSnippet =
-    bookInfo?.description ? firstNSentences(bookInfo.description, 3) : null
-
   return (
     <div style={{ padding: '40px 28px', maxWidth: 900 }}>
       <button
@@ -303,6 +310,25 @@ export default function BookDetail() {
             ))}
           </div>
 
+          {/* Description from Google Books — rendered below buy links */}
+          {bookInfo?.description && (
+            <p
+              style={{
+                ...serif,
+                fontWeight: 300,
+                fontStyle: 'italic',
+                fontSize: '0.875rem',
+                color: '#888',
+                lineHeight: 1.7,
+                marginBottom: 18,
+              }}
+            >
+              {bookInfo.description.length > 300
+                ? bookInfo.description.substring(0, 300) + '…'
+                : bookInfo.description}
+            </p>
+          )}
+
           {/* Metadata */}
           <p
             style={{
@@ -342,23 +368,6 @@ export default function BookDetail() {
               </span>
             )}
           </div>
-
-          {/* Description from Google Books */}
-          {descriptionSnippet && (
-            <p
-              style={{
-                ...serif,
-                fontWeight: 300,
-                fontStyle: 'italic',
-                fontSize: '0.95rem',
-                color: 'var(--muted)',
-                lineHeight: 1.7,
-                marginBottom: 14,
-              }}
-            >
-              {descriptionSnippet}
-            </p>
-          )}
 
           {/* Categories */}
           {bookInfo?.categories && bookInfo.categories.length > 0 && (
@@ -414,13 +423,25 @@ export default function BookDetail() {
               onClick={() => setEditing(true)}
               style={{
                 ...mono,
-                fontSize: '0.65rem',
+                fontSize: '0.5625rem',
                 letterSpacing: '0.1em',
                 textTransform: 'uppercase',
-                padding: '8px 14px',
-                border: '1px solid #2C1A0E',
+                padding: '8px 20px',
+                border: '1px solid #D9D0C4',
                 background: 'none',
-                color: '#2C1A0E',
+                color: '#888',
+                cursor: 'pointer',
+                transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLButtonElement
+                el.style.color = '#1A1008'
+                el.style.borderColor = '#1A1008'
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLButtonElement
+                el.style.color = '#888'
+                el.style.borderColor = '#D9D0C4'
               }}
             >
               edit
@@ -644,79 +665,81 @@ export default function BookDetail() {
       )}
 
       {/* YOU MIGHT ALSO LIKE */}
-      {(hasApiKey || recsLoading || recs) && (
-        <div style={{ marginTop: 48, borderTop: '1px solid #D9D0C4', paddingTop: 32 }}>
-          <p
-            style={{
-              ...mono,
-              fontSize: '0.6rem',
-              letterSpacing: '0.14em',
-              textTransform: 'uppercase',
-              color: '#888',
-              marginBottom: 24,
-            }}
-          >
-            you might also like
-          </p>
+      <div style={{ marginTop: 48, borderTop: '1px solid #D9D0C4', paddingTop: 32 }}>
+        <p
+          style={{
+            ...mono,
+            fontSize: '0.6rem',
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            color: '#888',
+            marginBottom: 24,
+          }}
+        >
+          you might also like
+        </p>
 
-          {recsLoading ? (
-            <p style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.08em' }}>
-              finding recommendations...
-            </p>
-          ) : recs && recs.length > 0 ? (
-            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-              {recs.map((rec, i) => (
-                <div
-                  key={rec.title}
+        {!hasApiKey ? (
+          <p style={{ ...mono, fontSize: '0.58rem', color: '#888', letterSpacing: '0.06em' }}>
+            add VITE_ANTHROPIC_API_KEY to .env to see ai recommendations
+          </p>
+        ) : recsLoading ? (
+          <p style={{ ...mono, fontSize: '0.6rem', color: '#888', letterSpacing: '0.08em' }}>
+            finding recommendations...
+          </p>
+        ) : recs && recs.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+            {recs.map((rec, i) => (
+              <div
+                key={rec.title}
+                style={{
+                  flex: '1 1 180px',
+                  borderLeft: i > 0 ? '1px solid var(--rule)' : 'none',
+                  paddingLeft: i === 0 ? 0 : 24,
+                  paddingRight: i < recs.length - 1 ? 24 : 0,
+                }}
+              >
+                <p
                   style={{
-                    flex: '1 1 180px',
-                    padding: '0 24px',
-                    borderLeft: i > 0 ? '1px solid var(--rule)' : 'none',
-                    paddingLeft: i === 0 ? 0 : 24,
+                    ...serif,
+                    fontWeight: 600,
+                    fontSize: '1rem',
+                    color: '#1A1008',
+                    marginBottom: 6,
+                    lineHeight: 1.3,
                   }}
                 >
-                  <p
-                    style={{
-                      ...serif,
-                      fontWeight: 600,
-                      fontSize: '1rem',
-                      color: '#1A1008',
-                      marginBottom: 6,
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    {rec.title}
-                  </p>
-                  <p
-                    style={{
-                      ...mono,
-                      fontSize: '0.58rem',
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      color: '#888',
-                      marginBottom: 10,
-                    }}
-                  >
-                    {rec.author}
-                  </p>
-                  <p
-                    style={{
-                      ...serif,
-                      fontWeight: 300,
-                      fontStyle: 'italic',
-                      fontSize: '0.88rem',
-                      color: 'rgba(26,16,8,0.6)',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {rec.reason}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )}
+                  {rec.title}
+                </p>
+                <p
+                  style={{
+                    ...mono,
+                    fontSize: '0.58rem',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: '#888',
+                    marginBottom: 10,
+                  }}
+                >
+                  {rec.author}
+                </p>
+                <p
+                  style={{
+                    ...serif,
+                    fontWeight: 300,
+                    fontStyle: 'italic',
+                    fontSize: '0.88rem',
+                    color: 'rgba(26,16,8,0.6)',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {rec.reason}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
