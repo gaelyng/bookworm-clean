@@ -36,24 +36,52 @@ function ProgressBar({
 export default function Stats() {
   const { user } = useOutletContext<OutletCtx>()
   const [yearBooks, setYearBooks] = useState<UserBook[]>([])
+  const [allReadBooks, setAllReadBooks] = useState<UserBook[]>([])
   const [loading, setLoading] = useState(true)
 
   const year = new Date().getFullYear()
   const currentMonth = new Date().getMonth() // 0-indexed
 
   useEffect(() => {
-    supabase
-      .from('user_books')
-      .select('*, books(*)')
-      .eq('user_id', user.id)
-      .eq('status', 'READ')
-      .gte('date_finished', `${year}-01-01`)
-      .lte('date_finished', `${year}-12-31`)
-      .order('date_finished', { ascending: false })
-      .then(({ data }) => {
-        if (data) setYearBooks(data as UserBook[])
-        setLoading(false)
-      })
+    async function load() {
+      // Diagnostic: fetch everything to inspect DB state
+      const { data: diagData } = await supabase
+        .from('user_books')
+        .select('id, status, date_finished, created_at, books(title)')
+        .eq('user_id', user.id)
+        .limit(500)
+      if (diagData) {
+        console.log('[Stats] total user_books:', diagData.length)
+        console.log('[Stats] sample 5:', diagData.slice(0, 5))
+        const statuses = [...new Set(diagData.map((b) => b.status))]
+        console.log('[Stats] distinct statuses:', statuses)
+      }
+
+      const [yearRes, allRes] = await Promise.all([
+        // Year-filtered: for monthly chart + goal progress
+        supabase
+          .from('user_books')
+          .select('*, books(*)')
+          .eq('user_id', user.id)
+          .eq('status', 'READ')
+          .gte('date_finished', `${year}-01-01`)
+          .lte('date_finished', `${year}-12-31`)
+          .order('date_finished', { ascending: false }),
+
+        // All-time READ: for author stats + timeline
+        supabase
+          .from('user_books')
+          .select('*, books(*)')
+          .eq('user_id', user.id)
+          .eq('status', 'READ')
+          .order('date_finished', { ascending: false, nullsFirst: false }),
+      ])
+
+      if (yearRes.data) setYearBooks(yearRes.data as UserBook[])
+      if (allRes.data) setAllReadBooks(allRes.data as UserBook[])
+      setLoading(false)
+    }
+    load()
   }, [user.id, year])
 
   // Derived stats
@@ -76,9 +104,9 @@ export default function Stats() {
   const maxMonthCount = Math.max(...monthCounts, 1)
   const bestMonthIdx = monthCounts.indexOf(Math.max(...monthCounts))
 
-  // Author breakdown
+  // Author breakdown — ALL TIME
   const authorCounts: Record<string, number> = {}
-  yearBooks.forEach((ub) => {
+  allReadBooks.forEach((ub) => {
     const a = ub.books?.author
     if (a) authorCounts[a] = (authorCounts[a] ?? 0) + 1
   })
@@ -86,7 +114,7 @@ export default function Stats() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
 
-  // Genre breakdown
+  // Genre breakdown — current year
   const genreCounts: Record<string, number> = {}
   yearBooks.forEach((ub) => {
     const g = ub.books?.genre
@@ -96,8 +124,8 @@ export default function Stats() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
 
-  // Timeline — all year books already sorted date desc
-  const timeline = yearBooks.filter((ub) => ub.date_finished)
+  // Timeline — 20 most recently finished, ALL TIME
+  const timeline = allReadBooks.filter((ub) => ub.date_finished).slice(0, 20)
 
   const mono: React.CSSProperties = { fontFamily: "'IBM Plex Mono', monospace" }
   const serif: React.CSSProperties = { fontFamily: "'Spectral', Georgia, serif" }
@@ -178,10 +206,10 @@ export default function Stats() {
           {/* Right: 2×2 secondary stats */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 }}>
             {[
-              { value: pagesCount.toLocaleString(), label: 'pages turned' },
+              { value: allReadBooks.length.toLocaleString(), label: 'books read all time' },
+              { value: pagesCount.toLocaleString(), label: 'pages turned this year' },
               { value: avgRating, label: 'avg rating' },
-              { value: '0%', label: 'female authors*' },
-              { value: '0%', label: 'authors of color*' },
+              { value: '—', label: 'avg days/book' },
             ].map((s) => (
               <div key={s.label}>
                 <div
@@ -386,7 +414,7 @@ export default function Stats() {
               marginBottom: 16,
             }}
           >
-            most read authors
+            most read authors · all time
           </div>
           {topAuthors.map(([author, count], i) => (
             <div
@@ -434,7 +462,7 @@ export default function Stats() {
               marginBottom: 24,
             }}
           >
-            reading timeline · {year}
+            reading timeline · all time
           </div>
 
           <div style={{ position: 'relative', paddingLeft: 24 }}>
@@ -519,7 +547,7 @@ export default function Stats() {
         </div>
       )}
 
-      {!loading && yearBooks.length === 0 && (
+      {!loading && allReadBooks.length === 0 && (
         <div style={{ padding: '48px 32px' }}>
           <p style={{ ...serif, fontWeight: 300, fontStyle: 'italic', color: '#888' }}>
             Log some books to see your stats.
