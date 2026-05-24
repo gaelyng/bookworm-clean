@@ -177,6 +177,66 @@ function EditModal({ book, onSave, onClose }: EditModalProps) {
   )
 }
 
+interface CoversItemProps {
+  ub: UserBook
+  index: number
+}
+
+function CoversItem({ ub, index }: CoversItemProps) {
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const coverUrl = ub.books?.cover_url
+  const title = ub.books?.title ?? ''
+  const isEager = index < 8
+
+  return (
+    <Link
+      to={`/books/${ub.id}`}
+      style={{ display: 'block', breakInside: 'avoid', marginBottom: 6 }}
+    >
+      {coverUrl && coverUrl.startsWith('http') && !failed ? (
+        <img
+          src={coverUrl}
+          alt={title}
+          loading={isEager ? 'eager' : 'lazy'}
+          fetchPriority={isEager ? 'high' : 'auto'}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          style={{
+            width: '100%',
+            aspectRatio: '2/3',
+            objectFit: 'cover',
+            display: 'block',
+            opacity: loaded ? 1 : 0,
+            transition: 'opacity 0.2s',
+          }}
+        />
+      ) : (
+        <div style={{
+          width: '100%',
+          aspectRatio: '2/3',
+          background: 'var(--rule)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 8,
+        }}>
+          <span style={{
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontSize: '0.58rem',
+            color: 'var(--muted)',
+            textAlign: 'center',
+            lineHeight: 1.4,
+            wordBreak: 'break-word',
+          }}>
+            {title}
+          </span>
+        </div>
+      )}
+    </Link>
+  )
+}
+
 export default function MyBooks() {
   const { user } = useOutletContext<OutletCtx>()
   const [books, setBooks] = useState<UserBook[]>([])
@@ -185,16 +245,32 @@ export default function MyBooks() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [editingBook, setEditingBook] = useState<UserBook | null>(null)
 
+  const cacheKey = `bookworm_books_${user.id}`
+
   const fetchBooks = useCallback(async () => {
+    // Render from cache immediately to avoid flash
+    try {
+      const cached = sessionStorage.getItem(cacheKey)
+      if (cached) {
+        setBooks(JSON.parse(cached) as UserBook[])
+        setLoading(false)
+      }
+    } catch { /* malformed cache — ignore */ }
+
+    // Fetch fresh in background
     const { data } = await supabase
       .from('user_books')
       .select('*, books(*)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
-    if (data) setBooks(data as UserBook[])
+    if (data) {
+      const fresh = data as UserBook[]
+      setBooks(fresh)
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(fresh)) } catch { /* full */ }
+    }
     setLoading(false)
-  }, [user.id])
+  }, [user.id, cacheKey])
 
   useEffect(() => { fetchBooks() }, [fetchBooks])
 
@@ -205,6 +281,10 @@ export default function MyBooks() {
     if (sortKey === 'date_finished') return (b.date_finished ?? '').localeCompare(a.date_finished ?? '')
     return (b.created_at ?? '').localeCompare(a.created_at ?? '')
   })
+
+  const coversSorted = [...books].sort((a, b) =>
+    (b.date_finished ?? '').localeCompare(a.date_finished ?? '')
+  )
 
   async function handleSaveEdit(updates: Partial<UserBook>) {
     if (!editingBook) return
@@ -381,26 +461,8 @@ export default function MyBooks() {
       ) : (
         /* Covers view — CSS columns masonry */
         <div style={{ columns: '5 140px', columnGap: 6 }}>
-          {sorted.map((ub) => (
-            <Link
-              key={ub.id}
-              to={`/books/${ub.id}`}
-              style={{
-                display: 'block',
-                breakInside: 'avoid',
-                marginBottom: 6,
-                opacity: 1,
-                transition: 'opacity 0.15s',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1' }}
-            >
-              <BookCover
-                coverUrl={ub.books?.cover_url}
-                title={ub.books?.title ?? ''}
-                style={{ width: '100%' }}
-              />
-            </Link>
+          {coversSorted.map((ub, i) => (
+            <CoversItem key={ub.id} ub={ub} index={i} />
           ))}
         </div>
       )}

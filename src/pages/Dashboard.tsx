@@ -21,6 +21,7 @@ export default function Dashboard() {
   const [booksThisYear, setBooksThisYear] = useState(0)
   const [pagesThisYear, setPagesThisYear] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [crDescription, setCrDescription] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -65,6 +66,20 @@ export default function Dashboard() {
     load()
   }, [user.id])
 
+  // Fetch Google Books description for currently-reading book
+  useEffect(() => {
+    if (!currentlyReading?.books) return
+    const { title, author } = currentlyReading.books
+    const q = `intitle:${encodeURIComponent(title)}+inauthor:${encodeURIComponent(author)}`
+    fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`)
+      .then((r) => r.json())
+      .then((data) => {
+        const desc: string | undefined = data.items?.[0]?.volumeInfo?.description
+        if (desc) setCrDescription(desc.length > 200 ? desc.substring(0, 200) + '…' : desc)
+      })
+      .catch(() => {})
+  }, [currentlyReading?.books?.title, currentlyReading?.books?.author])
+
   if (loading) {
     return (
       <div style={{ padding: '60px 28px', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.65rem', color: '#888', letterSpacing: '0.1em' }}>
@@ -75,58 +90,90 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* Currently reading band */}
-      {currentlyReading?.books && (
-        <Link
-          to={`/books/${currentlyReading.id}`}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 20,
-            background: '#1C2B4A',
-            padding: '16px 28px',
-            textDecoration: 'none',
-          }}
-        >
-          <BookCover
-            coverUrl={currentlyReading.books.cover_url}
-            title={currentlyReading.books.title}
-            width={44}
-            height={64}
-            style={{ flexShrink: 0 }}
-          />
-          <div>
-            <p style={{
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: '0.6rem',
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              color: 'rgba(245,240,232,0.45)',
-              marginBottom: 4,
-            }}>
-              currently reading
-            </p>
-            <p style={{
-              fontFamily: "'Spectral', Georgia, serif",
-              fontWeight: 600,
-              fontSize: '1rem',
-              color: '#F5F0E8',
-              marginBottom: 2,
-            }}>
-              {currentlyReading.books.title}
-            </p>
-            <p style={{
-              fontFamily: "'Spectral', Georgia, serif",
-              fontWeight: 300,
-              fontStyle: 'italic',
-              fontSize: '0.88rem',
-              color: 'rgba(245,240,232,0.6)',
-            }}>
-              {currentlyReading.books.author}
-            </p>
-          </div>
-        </Link>
-      )}
+      {/* Currently reading hero */}
+      {currentlyReading?.books && (() => {
+        const b = currentlyReading.books
+        const daysAgo = Math.floor(
+          (Date.now() - new Date(currentlyReading.created_at).getTime()) / 86_400_000
+        )
+        const startedText =
+          daysAgo === 0 ? 'started today' : `started ${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`
+        const meta = [b.author, b.publish_year, b.pages && `${b.pages}p`].filter(Boolean).join(' · ')
+
+        return (
+          <Link
+            to={`/books/${currentlyReading.id}`}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 20,
+              background: '#1C2B4A',
+              padding: '28px 24px',
+              textDecoration: 'none',
+            }}
+          >
+            {/* Cover */}
+            <div style={{ flexShrink: 0, border: '1px solid rgba(245,240,232,0.2)', width: 88, height: 132, overflow: 'hidden' }}>
+              <BookCover coverUrl={b.cover_url} title={b.title} width={88} height={132} />
+            </div>
+
+            {/* Right column */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: '0.5rem',
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: 'rgba(245,240,232,0.4)',
+                marginBottom: 6,
+              }}>
+                currently reading
+              </p>
+              <p style={{
+                fontFamily: "'Spectral', Georgia, serif",
+                fontWeight: 600,
+                fontSize: '1.625rem',
+                lineHeight: 1.1,
+                color: 'rgba(245,240,232,0.9)',
+                marginBottom: 8,
+              }}>
+                {b.title}
+              </p>
+              <p style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: '0.5625rem',
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: 'rgba(245,240,232,0.45)',
+                marginBottom: 10,
+              }}>
+                {meta}
+              </p>
+              {crDescription && (
+                <p style={{
+                  fontFamily: "'Spectral', Georgia, serif",
+                  fontWeight: 300,
+                  fontStyle: 'italic',
+                  fontSize: '0.75rem',
+                  lineHeight: 1.6,
+                  color: 'rgba(245,240,232,0.55)',
+                  marginBottom: 10,
+                }}>
+                  {crDescription}
+                </p>
+              )}
+              <p style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: '0.5rem',
+                color: 'rgba(245,240,232,0.35)',
+                letterSpacing: '0.06em',
+              }}>
+                {startedText}
+              </p>
+            </div>
+          </Link>
+        )
+      })()}
 
       {/* Stats band */}
       <div
