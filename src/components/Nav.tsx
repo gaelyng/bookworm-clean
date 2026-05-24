@@ -252,7 +252,7 @@ export default function Nav({ user }: NavProps) {
               {[
                 { label: 'log a book', action: () => navigate('/books/add') },
                 { label: 'log an article', action: () => navigate('/articles') },
-                { label: 'from a photo', action: () => alert('coming soon') },
+                { label: 'from a photo', action: () => navigate('/books/scan') },
               ].map((item, i, arr) => (
                 <button
                   key={item.label}
